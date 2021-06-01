@@ -11,11 +11,15 @@ service RaftProtocol {
 
 // idempotent on secondary
 message AppendEntriesRequest {
+  message LogEntry {
+    int32 term = 1;
+    string command = 2;
+  }
   int32 term = 1;// leader’s term
   int32 leaderId = 2; // so follower can redirect clients
   int32 prevLogIndex = 3; //index of log entry immediately preceding new ones
   int32 prevLogTerm = 4; //term of prevLogIndex entry
-  repeated string entries = 5;// log entries to store (empty for heartbeat;
+  repeated LogEntry entries = 5;// log entries to store (empty for heartbeat;
   // may send more than one for efficiency)
   int32 leaderCommit = 6; // leader’s commitIndex
 }
