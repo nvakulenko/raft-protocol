@@ -1,40 +1,53 @@
 package ua.edu.ucu.ds;
 
 import io.grpc.stub.StreamObserver;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.lognet.springboot.grpc.GRpcService;
 import org.springframework.beans.factory.annotation.Autowired;
 import ua.edu.ucu.*;
+import ua.edu.ucu.ds.experiments.Log;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 @GRpcService
 public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
 
     @Autowired
-    private ConsensusService consensusService;
+    private TheNodeStatus theNodeStatus;
+    @Autowired
+    private ReplicationService replicationService;
+    @Autowired
+    private Log replicatedLog;
 
     private final AtomicInteger counter = new AtomicInteger();
-    private final Map<Integer, List<String>> replicatedLog = new HashMap<>();
 
     @Override
     public void appendEntries(AppendEntriesRequest request,
-        StreamObserver<AppendEntriesResponse> responseObserver) {
-        NodeStatus nodeStatus = consensusService.getNodeStatus();
+                              StreamObserver<AppendEntriesResponse> responseObserver) {
 
-        if (NodeStatus.LEADER.equals(nodeStatus)) {
+        TheNodeStatus.NodeRole currentRole = theNodeStatus.currentRole;
+
+        if (TheNodeStatus.NodeRole.LEADER.equals(currentRole)) {
             // generate heart beats and replicate log
             // 1 - Write to log
             int leaderIndex = counter.incrementAndGet();
-            replicatedLog.put(leaderIndex, request.getEntriesList());
-            // 2 - notify Followers in parallel
+            //Log.LogEntry previousLogEntry = replicatedLog.putAndGetPreviousLogEntry(leaderIndex, request);
 
+            TheNodeStatus.LogEntry logEntry = theNodeStatus.appendLog(request.getEntriesList().get(0).getMsg());
+            // 2 - notify Followers in parallel
             // 2.1 - OK -> write to StateMachine and return response
             // 2.2 - NOT OK -> return error
+            boolean isReplicated = replicationService.replicateLog(logEntry);
+
+            // return response
+            responseObserver.onNext(AppendEntriesResponse.newBuilder()
+                    .setTerm(theNodeStatus.currentTerm)
+                    .setSuccess(isReplicated)
+                    .build());
+            responseObserver.onCompleted();
+            return;
         }
 
-        if (NodeStatus.FOLLOWER.equals(nodeStatus)) {
+        if (TheNodeStatus.NodeRole.FOLLOWER.equals(currentRole)) {
             // wait for heartbeats
             // if I am not the LEADER -> redirect to LEADER
 
@@ -51,11 +64,30 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
 
             AppendEntriesResponse.newBuilder().setSuccess(success);
 
+//            on receiving (LogRequest, leaderId, term, logLength, logTerm,
+//                    leaderCommit, entries) at node nodeId do
+//                if term > currentTerm then
+//            currentTerm := term; votedFor := null
+//            currentRole := follower; currentLeader := leaderId
+//            end if
+//              if term = currentTerm ∧ currentRole = candidate then
+//              currentRole := follower; currentLeader := leaderId
+//            end if
+//            logOk := (log.length ≥ logLength) ∧
+//            (logLength = 0 ∨ logTerm = log[logLength − 1].term)
+//            if term = currentTerm ∧ logOk then
+//            AppendEntries(logLength, leaderCommit, entries)
+//            ack := logLength + entries.length
+//            send (LogResponse, nodeId, currentTerm, ack,true) to leaderId
+//            else
+//            send (LogResponse, nodeId, currentTerm, 0, false) to leaderId
+//            end if
+//            end on
 
 
         }
 
-        if (NodeStatus.CANDIDATE.equals(nodeStatus)) {
+        if (TheNodeStatus.NodeRole.CANDIDATE.equals(currentRole)) {
             // ask for votes
         }
 

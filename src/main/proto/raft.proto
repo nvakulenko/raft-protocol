@@ -13,7 +13,7 @@ service RaftProtocol {
 message AppendEntriesRequest {
   message LogEntry {
     int32 term = 1;
-    string command = 2;
+    string msg = 2;
   }
   int32 term = 1;// leader’s term
   int32 leaderId = 2; // so follower can redirect clients
