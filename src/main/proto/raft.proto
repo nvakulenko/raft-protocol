@@ -38,5 +38,5 @@ message RequestVoteRequest {
 
 message RequestVoteResponse {
   int32 term = 1; // currentTerm, for candidate to update itself
-  int32 voteGranted = 2; // true means candidate received vote
+  bool voteGranted = 2; // true means candidate received vote
 }

@@ -13,11 +13,16 @@ public class TheNodeStatus {
     public Integer currentTerm = 0; // persist
     public Integer votedFor = null; // nodeId // persist
 
-    public class LogEntry {
+    public static class LogEntry {
         // message that we want to deliver through total order broadcast,
         public String msg;
         // term property contains the term number in which it was broadcast
         public Integer term;
+
+        public LogEntry(Integer term, String msg) {
+            this.term = term;
+            this.msg = msg;
+        }
     }
 
     public ArrayList<LogEntry> log; // type // persist
@@ -31,15 +36,22 @@ public class TheNodeStatus {
     public Integer currentLeader = null; // nodeId
     public List<Integer> votesReceived = Collections.emptyList(); // nodeIds
     public Map<Integer, Integer> sentLength = new HashMap(); // <NodeId, sentLength>
-    public Integer ackedLength = 0; // type???
+    public Map<Integer, Integer> ackedLength = new HashMap<>(); // type???
 
-    public LogEntry appendLog(String msg) {
+    public void appendLog(String msg) {
         // append the record (msg : msg, term : currentTerm) to log
         // ackedLength[nodeId] := log.length
-        LogEntry result = new LogEntry();
-        result.msg = msg;
-        result.term = currentTerm;
-        ackedLength = log.size();
-        return result;
+        LogEntry result = new LogEntry(currentTerm, msg);
+        log.add(result);
+        ackedLength.put(nodeId, log.size());
+    }
+
+    public List<LogEntry> getLogEntries(int startIndex) {
+        ArrayList<LogEntry> entries = new ArrayList<>();
+
+        for (int i = startIndex; i < log.size() - 1; i++) {
+            entries.add(log.get(i));
+        }
+        return entries;
     }
 }
