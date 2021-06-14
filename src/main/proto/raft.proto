@@ -26,7 +26,8 @@ message AppendEntriesRequest {
 
 message AppendEntriesResponse {
   int32 term = 1; // currentTerm, for leader to update itself
-  bool success = 2; // true if follower contained entry matching prevLogIndex and prevLogTerm
+  int32 ack = 2;
+  bool success = 3; // true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
 message RequestVoteRequest {

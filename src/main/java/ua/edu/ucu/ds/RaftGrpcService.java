@@ -2,17 +2,22 @@ package ua.edu.ucu.ds;
 
 import io.grpc.stub.StreamObserver;
 import org.lognet.springboot.grpc.GRpcService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import ua.edu.ucu.*;
 import ua.edu.ucu.AppendEntriesRequest.LogEntry;
 
+import java.time.Instant;
 import java.util.List;
 
 import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.CANDIDATE;
 import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.FOLLOWER;
 
 @GRpcService
-public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
+public class RaftGrpcService extends RaftProtocolGrpc.RaftProtocolImplBase {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(RaftGrpcService.class);
 
     @Autowired
     private TheNodeStatus theNodeStatus;
@@ -22,13 +27,23 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
     @Override
     public void appendEntries(AppendEntriesRequest request,
                               StreamObserver<AppendEntriesResponse> responseObserver) {
-
         TheNodeStatus.NodeRole currentRole = theNodeStatus.currentRole;
+        Integer nodeId = theNodeStatus.nodeId;
+        Integer currentLeader = theNodeStatus.currentLeader;
+        Integer currentTerm = theNodeStatus.currentTerm;
+        Integer commitLength = theNodeStatus.commitLength;
+
+        LOGGER.info("Node id {} state: Node role is: {}. Current leader: {}. Current term: {}. Commit length {}" +
+                "Received AppendEntriesRequest {}", nodeId, currentRole, currentLeader, currentTerm, commitLength, request);
+
+        if (currentLeader != null && currentLeader == request.getLeaderId()) {
+            theNodeStatus.lastLeaderAppendTime = Instant.now();
+        }
 
         if (TheNodeStatus.NodeRole.LEADER.equals(currentRole)) {
             // generate heart beats and replicate log
-            theNodeStatus.appendLog(request.getEntriesList().get(0).getMsg());
-            boolean isReplicated = replicationService.replicateLog();
+            List<LogEntry> entriesList = request.getEntriesList();
+            boolean isReplicated = replicationService.replicateLog(entriesList.get(0).getMsg());
 
             // return response
             responseObserver.onNext(AppendEntriesResponse.newBuilder()
@@ -43,9 +58,6 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
             // wait for heartbeats
             // if I am not the LEADER -> redirect to LEADER
 
-            // if Appended - return true, if not - false
-            boolean success = false;
-
             // Follower checks consistency of the received log entry
             // check first - prevLogIndex, prevLogTerm = check previous pointer
             // return SUCCESS or MISMATCH
@@ -54,25 +66,7 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
             // while reject -> try to replicate - відмотування назад з кроком -1 поки не знайдеться точка синхронізації
             // т. ч. всі фоловери синхронізуються з новим лідером
 
-//            on receiving (LogRequest, leaderId, term, logLength, logTerm,
-//                    leaderCommit, entries) at node nodeId do
-//                if term > currentTerm then
-//            currentTerm := term; votedFor := null
-//            currentRole := follower; currentLeader := leaderId
-//            end if
-//              if term = currentTerm ∧ currentRole = candidate then
-//              currentRole := follower; currentLeader := leaderId
-//            end if
-//            logOk := (log.length ≥ logLength) ∧
-//            (logLength = 0 ∨ logTerm = log[logLength − 1].term)
-//            if term = currentTerm ∧ logOk then
-//            AppendEntries(logLength, leaderCommit, entries)
-//            ack := logLength + entries.length
-//            send (LogResponse, nodeId, currentTerm, ack,true) to leaderId
-//            else
-//            send (LogResponse, nodeId, currentTerm, 0, false) to leaderId
-//            end if
-//            end on
+
             int term = request.getTerm();
             int leaderId = request.getLeaderId();
             // accept the new leader
@@ -100,6 +94,7 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
                 // send (LogResponse, nodeId, currentTerm, ack, true) to leaderId
                 response = AppendEntriesResponse.newBuilder()
                         .setSuccess(true)
+                        .setAck(ack)
                         .setTerm(theNodeStatus.currentTerm)
                         .build();
             } else {
@@ -159,16 +154,21 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
     @Override
     public void requestVote(RequestVoteRequest request, StreamObserver<RequestVoteResponse> responseObserver) {
 
+        LOGGER.info("Received RequestVoteRequest: " + request.toString());
+
         // from request
         Integer cId = request.getCandidateId();
         Integer cTerm = request.getTerm();
         Integer cLogLength = request.getLastLogIndex();
         Integer cLogTerm = request.getLastLogTerm();
 
+        LOGGER.info("Received RequestVoteRequest.cLogTerm: " + cLogTerm);
+
         // at nodeId
-        Integer myLogTerm = theNodeStatus.log.get(theNodeStatus.log.size() - 1).term;
+        Integer myLogTerm = theNodeStatus.log.isEmpty() ?
+                0 : theNodeStatus.log.get(theNodeStatus.log.size() - 1).term;
         Boolean logOk =
-                (cLogLength > myLogTerm) ||
+                (cLogTerm > myLogTerm) ||
                         (cLogTerm == myLogTerm && cLogLength >= theNodeStatus.log.size());
         Boolean termOk =
                 (cTerm > theNodeStatus.currentTerm) ||
@@ -179,6 +179,8 @@ public class RaftService extends RaftProtocolGrpc.RaftProtocolImplBase {
             theNodeStatus.currentTerm = cTerm;
             theNodeStatus.currentRole = FOLLOWER;
             theNodeStatus.votedFor = cId;
+            //??? not in pseudocode but should be here
+            theNodeStatus.currentLeader = cId;
 
             response = RequestVoteResponse.newBuilder()
                     .setTerm(theNodeStatus.currentTerm)

@@ -1,4 +1,4 @@
-package ua.edu.ucu.ds;
+package ua.edu.ucu.ds.scheduling;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import ua.edu.ucu.ds.ElectionService;
 
 import java.time.Instant;
 import java.util.Date;
@@ -17,25 +18,19 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 @Configuration
-@EnableScheduling
 public class ElectionSchedulingConfig implements SchedulingConfigurer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ElectionSchedulingConfig.class);
 
-    private static final Integer MAX_DELAY_IN_SECONDS = 8;
-    private static final Integer MIN_DELAY_IN_SECONDS = 3;
+    private static final Integer MAX_DELAY_IN_MILISECONDS = 8000;
+    private static final Integer MIN_DELAY_IN_MILISECONDS = 2000;
 
     @Autowired
     private ElectionService electionService;
 
-    @Bean
-    public Executor taskExecutor() {
-        return Executors.newSingleThreadScheduledExecutor();
-    }
-
     @Override
     public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
-        taskRegistrar.setScheduler(taskExecutor());
+        taskRegistrar.setScheduler(Executors.newSingleThreadScheduledExecutor());
         taskRegistrar.addTriggerTask(
                 () -> electionService.initElection(),
                 context -> {
@@ -52,7 +47,7 @@ public class ElectionSchedulingConfig implements SchedulingConfigurer {
     }
 
     private long getRandomTimeoutinMillis() {
-        return (new Random().nextInt(MAX_DELAY_IN_SECONDS - MIN_DELAY_IN_SECONDS) + MIN_DELAY_IN_SECONDS) * 1000;
+        return (new Random().nextInt(MAX_DELAY_IN_MILISECONDS - MIN_DELAY_IN_MILISECONDS) + MIN_DELAY_IN_MILISECONDS);
     }
 
 }

@@ -7,8 +7,10 @@ import org.springframework.stereotype.Component;
 import ua.edu.ucu.RequestVoteRequest;
 import ua.edu.ucu.RequestVoteResponse;
 
+import javax.annotation.PostConstruct;
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,24 +19,32 @@ import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.*;
 
 @Component
 public class ElectionService {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ElectionSchedulingConfig.class);
-    private Map<Integer, FollowerNode> followers;
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ElectionService.class);
+
+    @Autowired
+    private NodeRegistry nodeRegistry;
     @Autowired
     private ReplicationService replicationService;
 
     private ExecutorService executor;
 
-    public ElectionService() {
-        // TODO init followers
-        executor = Executors.newFixedThreadPool(followers.size());
+    @PostConstruct
+    public void init() {
+        executor = Executors.newFixedThreadPool(nodeRegistry.getNodesCount());
     }
 
     @Autowired
     private TheNodeStatus theNodeStatus;
 
     public void initElection() {
-        if (theNodeStatus.currentLeader == null) { // or leader is suspects
+        // or leader is suspects
+//        Instant lastLeaderAppendTime = theNodeStatus.lastLeaderAppendTime;
+//        if (lastLeaderAppendTime != null && lastLeaderAppendTime.compareTo(lastLeaderAppendTime) > 10000) {
+//
+//        }
+
+        if (theNodeStatus.currentLeader == null) {
             theNodeStatus.currentTerm = theNodeStatus.currentTerm + 1;
             theNodeStatus.currentRole = CANDIDATE;
             theNodeStatus.votedFor = theNodeStatus.nodeId;
@@ -51,29 +61,22 @@ public class ElectionService {
                     .setCandidateId(theNodeStatus.nodeId)
                     .setTerm(theNodeStatus.currentTerm)
                     .setLastLogTerm(lastTerm)
-                    .setLastLogIndex(theNodeStatus.log.size() - 1) // ???
+                    .setLastLogIndex(theNodeStatus.log.size() == 0 ? 0 : theNodeStatus.log.size() - 1) // ???
                     .build();
 
             sendVoteRequestToCluster(voteRequest);
         }
-//        on node nodeId suspects leader has failed, or on election timeout do
-//            currentTerm := currentTerm + 1; currentRole := candidate
-//        votedFor := nodeId; votesReceived := {nodeId}; lastTerm := 0
-//        if log.length > 0 then lastTerm := log[log.length − 1].term; end if
-//        msg := (VoteRequest, nodeId, currentTerm, log.length, lastTerm)
-//        for each node ∈ nodes: send msg to node
-//        start election timer
-//        end on
     }
 
     private void sendVoteRequestToCluster(RequestVoteRequest voteRequest) {
         try {
-            CountDownLatch countDownLatch = new CountDownLatch(followers.size());
-            followers.keySet().stream().forEach(
+            Integer nodesCount = nodeRegistry.getNodesCount();
+            CountDownLatch countDownLatch = new CountDownLatch(nodesCount);
+            nodeRegistry.getNodeClients().keySet().stream().forEach(
                     followerId ->
                             executor.execute(() -> {
                                 try {
-                                    RequestVoteResponse voteResponse = sendRequest(voteRequest, followerId);
+                                    Optional<RequestVoteResponse> voteResponse = sendRequest(voteRequest, followerId);
                                     processResponse(followerId, voteResponse);
                                 } catch (Throwable e) {
                                     LOGGER.error(e.getLocalizedMessage(), e);
@@ -82,47 +85,49 @@ public class ElectionService {
                                 }
                             }));
 
-            LOGGER.info("Wait for " + (followers.size()) + " followers");
+            LOGGER.info("Wait for " + (nodesCount) + " followers");
             countDownLatch.await();
-            LOGGER.info("Received response from " + (followers.size()) + " followers");
+            LOGGER.info("Received response from " + (nodesCount) + " followers");
         } catch (InterruptedException e) {
             LOGGER.error(e.getLocalizedMessage(), e);
         }
     }
 
-    private RequestVoteResponse sendRequest(RequestVoteRequest voteRequest, Integer followerId) {
-        int i = 0;
+    private Optional<RequestVoteResponse> sendRequest(RequestVoteRequest voteRequest, Integer followerId) {
+        int i = 1;
         // make 2 attempts ???
-        while (i <= 2) {
+        while (i <= 1) {
             try {
-                i++;
-                LOGGER.info("Replication attempt #{} to: {}, LOG: {}", i + 1, followerId, voteRequest);
+                LOGGER.info("Vote attempt #{} to: {}, LOG: {}", i, followerId, voteRequest);
                 RequestVoteResponse voteResponse =
-                        followers.get(followerId).rpcClient.requestVote(voteRequest);
+                        nodeRegistry.getNodeGrpcClient(followerId).requestVote(voteRequest);
                 LOGGER.info("Follower {} has granted vote {} with term {}",
                         followerId,
                         voteResponse.getVoteGranted(),
                         voteResponse.getTerm());
-                return voteResponse;
+                return Optional.of(voteResponse);
             } catch (Throwable e) {
                 LOGGER.error(e.getLocalizedMessage(), e);
             }
+            i++;
         }
-        return null;
+        return Optional.empty();
     }
 
-    private void processResponse(Integer voterId, RequestVoteResponse voteResponse) {
-        boolean granted = voteResponse.getVoteGranted();
-        Integer term = voteResponse.getTerm();
+    private void processResponse(Integer voterId, Optional<RequestVoteResponse> voteResponse) {
+        if (voteResponse.isEmpty()) return;
+
+        boolean granted = voteResponse.get().getVoteGranted();
+        Integer term = voteResponse.get().getTerm();
 
         if (CANDIDATE.equals(theNodeStatus.currentRole) && term == theNodeStatus.currentTerm && granted) {
             theNodeStatus.votesReceived.add(voterId);
-            if (theNodeStatus.votesReceived.size() >= (followers.size() + 1) / 2) {
+            if (theNodeStatus.votesReceived.size() >= (nodeRegistry.getNodesCount() + 1) / 2) {
                 theNodeStatus.currentRole = LEADER;
                 theNodeStatus.currentLeader = theNodeStatus.nodeId;
                 // cancel election timer
                 // replicate log after election
-                followers.keySet().forEach(nodeId ->
+                nodeRegistry.getNodeClients().keySet().forEach(nodeId ->
                 {
                     theNodeStatus.sentLength.put(nodeId, theNodeStatus.log.size());
                     theNodeStatus.ackedLength.put(nodeId, 0);

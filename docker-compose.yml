@@ -1,0 +1,54 @@
+version: '3.8'
+
+networks:
+  grpc-network:
+    name: grpc-network
+
+services:
+  node-1:
+    container_name: node-1
+    build:
+      context: ./
+    networks:
+      grpc-network:
+        aliases:
+          - node-1
+    environment:
+      RAFT_NODE_ID: 1
+      RAFT_NODES: "2:node-2:6567#3:node-3:6568"
+      GRPC_PORT: 6565
+    ports:
+      - "8080:8080"
+      - "6565:6565"
+
+  node-2:
+    container_name: node-2
+    build:
+      context: ./
+    networks:
+      grpc-network:
+        aliases:
+          - node-2
+    environment:
+      RAFT_NODE_ID: 2
+      RAFT_NODES: "1:node-1:6565#3:node-3:6568"
+      GRPC_PORT: 6567
+    ports:
+      - "8081:8080"
+      - "6567:6567"
+
+  node-3:
+    container_name: node-3
+    build:
+      context: ./
+    networks:
+      grpc-network:
+        aliases:
+          - node-3
+    environment:
+      RAFT_NODE_ID: 3
+      RAFT_NODES: "1:node-1:6565#2:node-2:6567"
+      GRPC_PORT: 6568
+    ports:
+      - "8082:8080"
+      - "6568:6568"
