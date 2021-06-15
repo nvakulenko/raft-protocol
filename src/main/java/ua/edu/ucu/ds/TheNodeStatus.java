@@ -1,5 +1,6 @@
 package ua.edu.ucu.ds;
 
+import lombok.ToString;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ public class TheNodeStatus {
     public volatile Integer currentTerm = 0; // persist
     public volatile Integer votedFor = null; // nodeId // persist
 
+    @ToString
     public static class LogEntry {
         // message that we want to deliver through total order broadcast,
         public String msg;

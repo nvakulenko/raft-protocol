@@ -19,19 +19,14 @@ import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.LEADER;
 @Component
 public class ReplicationService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ReplicationService.class);
+
     @Autowired
     private NodeRegistry nodeRegistry;
     @Autowired
     private TheNodeStatus theNodeStatus;
 
-    // taken from replicated-log project - maybe will change according to raft protocol
-    public enum ReplicationStatus {
-        REPLICATED, FAILED_REPLICATION
-    }
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(ReplicationService.class);
     private ExecutorService executor;
-
     private Integer quorum;
 
     @PostConstruct
@@ -50,31 +45,30 @@ public class ReplicationService {
         // 2.1 - OK -> write to StateMachine and return response
         // 2.2 - NOT OK -> return error
         try {
-            // ??? do we need to wait to all nodes or just for quorum???
-            CountDownLatch countDownLatch = new CountDownLatch(nodeRegistry.getNodesCount() - 1);
-            List<Future<ReplicationStatus>> futures = nodeRegistry.getNodeClients().keySet().stream().map(
+            // ??? do we need to wait to all nodes or for quorum???
+            int followersCount = nodeRegistry.getNodesCount();
+            CountDownLatch countDownLatch = new CountDownLatch(followersCount);
+            List<Future<Boolean>> futures = nodeRegistry.getNodeClients().keySet().stream().map(
                     followerId -> {
                         return executor.submit(() -> {
                             try {
-                                ReplicationStatus replicationStatus = replicateLogToFollower(buildRequest(followerId), followerId);
-                                return replicationStatus;
-                                // save replication status
+                                return replicateLogToFollower(buildRequest(followerId), followerId);
                             } catch (Throwable e) {
                                 LOGGER.error(e.getLocalizedMessage(), e);
-                                return ReplicationStatus.FAILED_REPLICATION;
+                                return false;
                             } finally {
                                 countDownLatch.countDown();
                             }
                         });
                     }).collect(Collectors.toList());
 
-            LOGGER.info("Wait for " + (quorum) + " replicas");
+            LOGGER.info("Wait for " + followersCount + " followers");
             countDownLatch.await();
-            LOGGER.info("Received response from " + (quorum) + " replicas");
-            long failureResponses = futures.stream()
+            LOGGER.info("Received response from " + followersCount + " followers");
+            long successResponses = futures.stream()
                     .filter(in -> {
                         try {
-                            return in.isDone() && ReplicationStatus.FAILED_REPLICATION.equals(in.get());
+                            return in.isDone() && in.get();
                         } catch (InterruptedException e) {
                             LOGGER.error(e.getLocalizedMessage(), e);
                             return false;
@@ -83,23 +77,16 @@ public class ReplicationService {
                             return false;
                         }
                     }).count();
-            return failureResponses == 0;
+            return successResponses == followersCount;
         } catch (InterruptedException e) {
             LOGGER.error(e.getLocalizedMessage());
-            // by fact UNKNOWN
             return false;
         }
     }
 
-    private ReplicationStatus replicateLogToFollower(AppendEntriesRequest appendEntriesRequest, Integer followerId) {
-        int i = 0;
-        while (true) {
+    private boolean replicateLogToFollower(AppendEntriesRequest appendEntriesRequest, Integer followerId) {
             try {
-                i++;
-                if (i > 2) {
-                    Thread.sleep(5000);
-                }
-                LOGGER.info("Replication attempt #{} to: {}, LOG: {}", i, followerId, appendEntriesRequest);
+                LOGGER.info("Replicate to: {}, LOG: {}", followerId, appendEntriesRequest);
                 AppendEntriesResponse response =
                         nodeRegistry.getNodeGrpcClient(followerId).appendEntries(appendEntriesRequest);
 
@@ -126,11 +113,11 @@ public class ReplicationService {
                     theNodeStatus.currentRole = FOLLOWER;
                     theNodeStatus.votedFor = null;
                 }
-                return null;
+                return response.getSuccess();
             } catch (Throwable e) {
                 LOGGER.error(e.getLocalizedMessage());
+                return false;
             }
-        }
     }
 
     private void commitLogEntries() {
@@ -149,6 +136,7 @@ public class ReplicationService {
                 theNodeStatus.log.get(maxReady.getAsInt() - 1).term == theNodeStatus.currentTerm) {
                 for (int i = theNodeStatus.commitLength; i < maxReady.getAsInt() - 1; i++) {
                     // TODO deliver message to application
+                    LOGGER.info("Log with index {} is committed", i);
                 }
                 theNodeStatus.commitLength = maxReady.getAsInt();
             }

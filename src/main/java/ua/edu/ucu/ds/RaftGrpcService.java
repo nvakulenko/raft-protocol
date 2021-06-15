@@ -34,9 +34,15 @@ public class RaftGrpcService extends RaftProtocolGrpc.RaftProtocolImplBase {
         Integer commitLength = theNodeStatus.commitLength;
 
         LOGGER.info("Node id {} state: Node role is: {}. Current leader: {}. Current term: {}. Commit length {}" +
-                "Received AppendEntriesRequest {}", nodeId, currentRole, currentLeader, currentTerm, commitLength, request);
+                " Received AppendEntriesRequest {}", nodeId, currentRole, currentLeader, currentTerm, commitLength, request);
 
+        // if is heartbeat -> update last leader ping time
+        // If there are no new messages, entries is the empty list.
+        // LogRequest messages with entries = [] serve as heartbeats, letting
+        // followers know that the leader is still alive.
         if (currentLeader != null && currentLeader == request.getLeaderId()) {
+            // check if entities is empty and return ???
+            // is it enouth
             theNodeStatus.lastLeaderAppendTime = Instant.now();
         }
 
@@ -65,7 +71,6 @@ public class RaftGrpcService extends RaftProtocolGrpc.RaftProtocolImplBase {
             // if prevLogTerm is older then a current one - trust the message and rewrite log entries
             // while reject -> try to replicate - відмотування назад з кроком -1 поки не знайдеться точка синхронізації
             // т. ч. всі фоловери синхронізуються з новим лідером
-
 
             int term = request.getTerm();
             int leaderId = request.getLeaderId();
@@ -116,25 +121,14 @@ public class RaftGrpcService extends RaftProtocolGrpc.RaftProtocolImplBase {
     }
 
     private void appendEntries(int logLength, int leaderCommit, List<LogEntry> entries) {
-        //        function AppendEntries(logLength, leaderCommit, entries)
-//        if entries.length > 0 ∧ log.length > logLength then
-//        if log[logLength].term 6= entries[0].term then
-//        log := hlog[0], log[1], . . . , log[logLength − 1]i
-//        end if
-//        end if
 
         if (entries.size() > 0 && theNodeStatus.log.size() > logLength) {
             if (theNodeStatus.log.get(logLength).term != entries.get(0).getTerm()) {
                 // log := hlog[0], log[1], . . . , log[logLength − 1]i
-                // leave as it is
+
             }
         }
 
-//        if logLength + entries.length > log.length then
-//        for i := log.length − logLength to entries.length − 1 do
-//            append entries[i] to log
-//        end for
-//        end if
         if (logLength + entries.size() > theNodeStatus.log.size()) {
             for (int i = theNodeStatus.log.size() - logLength; i < entries.size() - 1; i++) {
                 LogEntry logEntry = entries.get(i);
@@ -143,10 +137,6 @@ public class RaftGrpcService extends RaftProtocolGrpc.RaftProtocolImplBase {
         }
 
         if (leaderCommit > theNodeStatus.commitLength) {
-//        ?????
-//        for i := commitLength to leaderCommit − 1 do
-//            deliver log[i].msg to the application
-//        end for
             theNodeStatus.commitLength = leaderCommit;
         }
     }
