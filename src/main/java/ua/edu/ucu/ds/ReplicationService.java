@@ -9,6 +9,7 @@ import ua.edu.ucu.AppendEntriesResponse;
 import ua.edu.ucu.ds.TheNodeStatus.LogEntry;
 
 import javax.annotation.PostConstruct;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -28,11 +29,24 @@ public class ReplicationService {
 
     private ExecutorService executor;
     private Integer quorum;
+    public static final long REPLICATION_DELAY = 5000L;
 
     @PostConstruct
     public void init() {
         executor = Executors.newFixedThreadPool(nodeRegistry.getNodesCount());
         quorum = (nodeRegistry.getNodesCount() + 1) % 2;
+
+        TimerTask task = new TimerTask() {
+            public void run() {
+                if (LEADER.equals(theNodeStatus.currentRole)) {
+                    LOGGER.info("Replication task performed on node {} - time {}: " +
+                            theNodeStatus.nodeId, Instant.now());
+                    replicateLog();
+                }
+            }
+        };
+        Timer timer = new Timer("Replication timer");
+        timer.schedule(task, 10000, REPLICATION_DELAY);
     }
 
     public boolean replicateLog(String msg) {
@@ -40,7 +54,7 @@ public class ReplicationService {
         return replicateLog();
     }
 
-    public boolean replicateLog() {
+    public synchronized boolean replicateLog() {
         // 2 - notify Followers in parallel
         // 2.1 - OK -> write to StateMachine and return response
         // 2.2 - NOT OK -> return error

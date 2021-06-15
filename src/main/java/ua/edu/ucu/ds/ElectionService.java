@@ -39,12 +39,7 @@ public class ElectionService {
 
     public void initElection() {
         // or leader is suspects
-//        Instant lastLeaderAppendTime = theNodeStatus.lastLeaderAppendTime;
-//        if (lastLeaderAppendTime != null && lastLeaderAppendTime.compareTo(lastLeaderAppendTime) > 10000) {
-//
-//        }
-
-        if (theNodeStatus.currentLeader == null) {
+        if (theNodeStatus.currentLeader == null || leaderIsSuspected()) {
             theNodeStatus.currentTerm = theNodeStatus.currentTerm + 1;
             theNodeStatus.currentRole = CANDIDATE;
             theNodeStatus.votedFor = theNodeStatus.nodeId;
@@ -66,6 +61,11 @@ public class ElectionService {
 
             sendVoteRequestToCluster(voteRequest);
         }
+    }
+
+    private boolean leaderIsSuspected() {
+        Instant lastLeaderAppendTime = theNodeStatus.lastLeaderAppendTime;
+        return lastLeaderAppendTime != null && lastLeaderAppendTime.compareTo(lastLeaderAppendTime) > 10000;
     }
 
     private void sendVoteRequestToCluster(RequestVoteRequest voteRequest) {
