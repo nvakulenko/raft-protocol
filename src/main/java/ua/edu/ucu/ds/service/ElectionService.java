@@ -11,10 +11,7 @@ import javax.annotation.PostConstruct;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 
 import static ua.edu.ucu.ds.service.TheNodeStatus.NodeRole.*;
 
@@ -164,7 +161,9 @@ public class ElectionService {
         try {
             LOGGER.info("Vote attempt of node {} to: {}, LOG: {}", theNodeStatus.nodeId, followerId, voteRequest);
             RequestVoteResponse voteResponse =
-                    nodeRegistry.getNodeGrpcClient(followerId).requestVote(voteRequest);
+                    nodeRegistry.getNodeGrpcClient(followerId)
+                            .withDeadlineAfter(1, TimeUnit.SECONDS)
+                            .requestVote(voteRequest);
             LOGGER.info("Follower {} has granted vote {} with term {}",
                     followerId,
                     voteResponse.getVoteGranted(),

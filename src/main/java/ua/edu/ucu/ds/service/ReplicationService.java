@@ -131,6 +131,15 @@ public class ReplicationService {
                     theNodeStatus.currentLeader, theNodeStatus.nodeId, theNodeStatus.currentTerm);
         }
 
+        // found: after reunion of split cluster - rewrite new leader id
+        if (term == theNodeStatus.currentTerm && FOLLOWER.equals(theNodeStatus.currentRole)
+                && theNodeStatus.currentLeader != request.getLeaderId()) {
+            theNodeStatus.currentLeader = leaderId;
+
+            LOGGER.info("New LEADER {} is accepted by FOLLOWER node {}, current term {}",
+                    theNodeStatus.currentLeader, theNodeStatus.nodeId, theNodeStatus.currentTerm);
+        }
+
         int logLength = theNodeStatus.log.size();
         boolean logOk = (logLength >= request.getPrevLogIndex()) &&
                 (request.getPrevLogIndex() == 0 || request.getPrevLogTerm() == theNodeStatus.log.get(request.getPrevLogIndex() - 1).term);
@@ -190,12 +199,12 @@ public class ReplicationService {
                 theNodeStatus.nodeId, theNodeStatus.log.size(), theNodeStatus.commitLength);
     }
 
-    public synchronized boolean replicateLogToFollowers(String msg) {
+    public boolean replicateLogToFollowers(String msg) {
         theNodeStatus.appendLog(msg);
         return replicateLogToFollowers();
     }
 
-    public synchronized boolean replicateLogToFollowers() {
+    public boolean replicateLogToFollowers() {
         // 2 - notify Followers in parallel
         // 2.1 - OK -> write to StateMachine and return response
         // 2.2 - NOT OK -> return error
@@ -243,7 +252,9 @@ public class ReplicationService {
         try {
             LOGGER.info("Replicate to: {}, LOG: {}", followerId, appendEntriesRequest);
             AppendEntriesResponse response =
-                    nodeRegistry.getNodeGrpcClient(followerId).appendEntries(appendEntriesRequest);
+                    nodeRegistry.getNodeGrpcClient(followerId)
+                            .withDeadlineAfter(1, TimeUnit.SECONDS)
+                            .appendEntries(appendEntriesRequest);
 
             LOGGER.info("Received response from node {}, success is {}, leader for node is {}",
                     followerId,

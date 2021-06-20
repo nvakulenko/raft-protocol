@@ -26,8 +26,8 @@ public class ClientRestController {
 
         result.append("Current node status is: ").append(currentRole.toString());
         if (LEADER.equals(currentRole)) {
-            boolean replicateLog = replicationService.replicateLogToFollowers(msg);
-            result.append("\n Msg is replicated: ").append(replicateLog);
+            replicationService.replicateLogToFollowers(msg);
+            result.append("\n Message is replicated!");
         }
 
         if (FOLLOWER.equals(currentRole)) {
