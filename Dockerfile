@@ -5,4 +5,4 @@ RUN mvn -f /usr/src/app/pom.xml clean package
 
 FROM openjdk:11
 COPY --from=build /usr/src/app/target/raft-protocol-1.0-SNAPSHOT.jar /usr/app/raft-protocol-1.0-SNAPSHOT.jar
-ENTRYPOINT ["java","-jar","/usr/app/raft-protocol-1.0-SNAPSHOT.jar"]
+ENTRYPOINT ["java","-Djava.security.egd=file:/dev/./urandom","-jar","/usr/app/raft-protocol-1.0-SNAPSHOT.jar"]

@@ -1,4 +1,4 @@
-package ua.edu.ucu.ds;
+package ua.edu.ucu.ds.service;
 
 
 import io.grpc.ManagedChannelBuilder;

@@ -1,13 +1,14 @@
-package ua.edu.ucu.ds;
+package ua.edu.ucu.ds.rest;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
+import ua.edu.ucu.ds.service.ReplicationService;
+import ua.edu.ucu.ds.service.TheNodeStatus;
 
-import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.FOLLOWER;
-import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.LEADER;
+import static ua.edu.ucu.ds.service.TheNodeStatus.NodeRole.FOLLOWER;
+import static ua.edu.ucu.ds.service.TheNodeStatus.NodeRole.LEADER;
 
 @RestController
 public class ClientRestController {
@@ -25,7 +26,7 @@ public class ClientRestController {
 
         result.append("Current node status is: ").append(currentRole.toString());
         if (LEADER.equals(currentRole)) {
-            boolean replicateLog = replicationService.replicateLog(msg);
+            boolean replicateLog = replicationService.replicateLogToFollowers(msg);
             result.append("\n Msg is replicated: ").append(replicateLog);
         }
 
@@ -40,11 +41,17 @@ public class ClientRestController {
         StringBuilder result = new StringBuilder();
         result.append("Current node role: ")
                 .append(theNodeStatus.currentRole.toString())
-                .append("\r\n Current leader id: ")
+                .append(System.lineSeparator())
+                .append("Current term: ")
+                .append(theNodeStatus.currentTerm)
+                .append(System.lineSeparator())
+                .append("Current leader id: ")
                 .append(theNodeStatus.currentLeader)
-                .append("\r\n Current commit length: ")
+                .append(System.lineSeparator())
+                .append("Current commit length: ")
                 .append(theNodeStatus.commitLength)
-                .append("\r\n Current log: ")
+                .append(System.lineSeparator())
+                .append("Current log: ")
                 .append(theNodeStatus.log);
 
         return result.toString();

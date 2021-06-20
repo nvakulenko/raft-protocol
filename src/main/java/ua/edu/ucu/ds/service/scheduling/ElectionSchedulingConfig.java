@@ -1,4 +1,4 @@
-package ua.edu.ucu.ds.scheduling;
+package ua.edu.ucu.ds.service.scheduling;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -6,8 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
-import ua.edu.ucu.ds.ElectionService;
-import ua.edu.ucu.ds.ReplicationService;
+import ua.edu.ucu.ds.service.ElectionService;
+import ua.edu.ucu.ds.service.ReplicationService;
 
 import java.time.Instant;
 import java.util.Date;

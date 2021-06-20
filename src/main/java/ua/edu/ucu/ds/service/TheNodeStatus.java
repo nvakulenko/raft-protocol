@@ -1,4 +1,4 @@
-package ua.edu.ucu.ds;
+package ua.edu.ucu.ds.service;
 
 import lombok.ToString;
 import org.springframework.beans.factory.annotation.Value;
@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
 public class TheNodeStatus {
@@ -18,9 +20,9 @@ public class TheNodeStatus {
     @ToString
     public static class LogEntry {
         // message that we want to deliver through total order broadcast,
-        public String msg;
+        public volatile String msg;
         // term property contains the term number in which it was broadcast
-        public Integer term;
+        public volatile Integer term;
 
         public LogEntry(Integer term, String msg) {
             this.term = term;
@@ -28,7 +30,7 @@ public class TheNodeStatus {
         }
     }
 
-    public ArrayList<LogEntry> log = new ArrayList<>(); // type // persist
+    public CopyOnWriteArrayList<LogEntry> log = new CopyOnWriteArrayList<LogEntry>(); // type // persist
     public volatile Integer commitLength = 0; // persist
 
     public enum NodeRole {
@@ -38,9 +40,9 @@ public class TheNodeStatus {
     public volatile NodeRole currentRole = NodeRole.FOLLOWER;
     public volatile Integer currentLeader = null; // nodeId
     public volatile Instant lastLeaderAppendTime;
-    public List<Integer> votesReceived = Collections.emptyList(); // nodeIds
-    public Map<Integer, Integer> sentLength = new HashMap(); // <NodeId, sentLength>
-    public Map<Integer, Integer> ackedLength = new HashMap<>(); // type???
+    public CopyOnWriteArrayList<Integer> votesReceived = new CopyOnWriteArrayList<Integer>(); // nodeIds
+    public ConcurrentHashMap<Integer, Integer> sentLength = new ConcurrentHashMap<>(); // <NodeId, sentLength>
+    public ConcurrentHashMap<Integer, Integer> ackedLength = new ConcurrentHashMap<>(); // type???
 
     public void appendLog(String msg) {
         // append the record (msg : msg, term : currentTerm) to log
@@ -56,7 +58,7 @@ public class TheNodeStatus {
         }
 
         ArrayList<LogEntry> entries = new ArrayList<>();
-        for (int i = startIndex; i < log.size() - 1; i++) {
+        for (int i = startIndex; i < log.size(); i++) {
             entries.add(log.get(i));
         }
         return entries;

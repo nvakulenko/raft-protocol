@@ -20,6 +20,7 @@ services:
     ports:
       - "8080:8080"
       - "6565:6565"
+    command: java -Djava.security.egd=file:/dev/./urandom -jar /usr/app/raft-protocol-1.0-SNAPSHOT.jar
 
   node-2:
     container_name: node-2
@@ -36,6 +37,7 @@ services:
     ports:
       - "8081:8080"
       - "6567:6567"
+    command: java -Djava.security.egd=file:/dev/./urandom -jar /usr/app/raft-protocol-1.0-SNAPSHOT.jar
 
   node-3:
     container_name: node-3
@@ -52,3 +54,4 @@ services:
     ports:
       - "8082:8080"
       - "6568:6568"
+    command: java -Djava.security.egd=file:/dev/./urandom -jar /usr/app/raft-protocol-1.0-SNAPSHOT.jar

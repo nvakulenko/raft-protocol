@@ -1,4 +1,4 @@
-package ua.edu.ucu.ds;
+package ua.edu.ucu.ds.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,19 +8,21 @@ import ua.edu.ucu.RequestVoteRequest;
 import ua.edu.ucu.RequestVoteResponse;
 
 import javax.annotation.PostConstruct;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static ua.edu.ucu.ds.TheNodeStatus.NodeRole.*;
+import static ua.edu.ucu.ds.service.TheNodeStatus.NodeRole.*;
 
 @Component
 public class ElectionService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ElectionService.class);
+    public static final int LEADER_SUSPECTED_TIMEOUT_IN_SECONDS = 10;
 
     @Autowired
     private NodeRegistry nodeRegistry;
@@ -37,13 +39,70 @@ public class ElectionService {
     @Autowired
     private TheNodeStatus theNodeStatus;
 
+    public RequestVoteResponse requestVote(RequestVoteRequest request) {
+        LOGGER.info("Received RequestVoteRequest: " + request.toString());
+
+        // from request
+        Integer cId = request.getCandidateId();
+        Integer cTerm = request.getTerm();
+        Integer cLogLength = request.getLastLogIndex();
+        Integer cLogTerm = request.getLastLogTerm();
+
+        LOGGER.info("Received RequestVoteRequest.cLogTerm: " + cLogTerm);
+
+        // at nodeId
+        Integer myLogTerm = theNodeStatus.log.isEmpty() ?
+                0 : theNodeStatus.log.get(theNodeStatus.log.size() - 1).term;
+        Boolean logOk =
+                (cLogTerm > myLogTerm) ||
+                        (cLogTerm == myLogTerm && cLogLength >= theNodeStatus.log.size());
+
+        LOGGER.info("(cLogTerm {} > myLogTerm {} ) ||" +
+                "(cLogTerm == myLogTerm && cLogLength {} >= theNodeStatus.log.size()) {}; >> theNodeStatus.commitLength {}",
+                cLogTerm, myLogTerm, cLogLength, theNodeStatus.log.size(), theNodeStatus.commitLength);
+        Boolean termOk =
+                (cTerm > theNodeStatus.currentTerm) ||
+                        (cTerm == theNodeStatus.currentTerm &&
+                                (theNodeStatus.votedFor == null || theNodeStatus.votedFor == cId));
+
+        LOGGER.info("(cTerm {} > theNodeStatus.currentTerm {}) || " +
+                "(cTerm {} == theNodeStatus.currentTerm {} &&" +
+                        "(theNodeStatus.votedFor {} == null || theNodeStatus.votedFor == cId {} ))",
+                cTerm, theNodeStatus.currentTerm, cTerm, theNodeStatus.currentTerm, theNodeStatus.votedFor, cId);
+
+        LOGGER.info("LogOk: {}, TermOk {}", logOk, termOk);
+
+        RequestVoteResponse response = null;
+        if (logOk && termOk) {
+            theNodeStatus.currentTerm = cTerm;
+            theNodeStatus.currentRole = FOLLOWER;
+            theNodeStatus.votedFor = cId;
+            //??? not in pseudocode but should be here
+            theNodeStatus.currentLeader = cId;
+
+            response = RequestVoteResponse.newBuilder()
+                    .setTerm(theNodeStatus.currentTerm)
+                    .setVoteGranted(true)
+                    .build();
+        } else {
+            response = RequestVoteResponse.newBuilder()
+                    .setTerm(theNodeStatus.currentTerm)
+                    .setVoteGranted(false)
+                    .build();
+        }
+
+        return response;
+    }
+
     public void initElection() {
         // or leader is suspects
-        if (theNodeStatus.currentLeader == null || leaderIsSuspected()) {
+        checkLeaderIsSuspected();
+
+        if (theNodeStatus.currentLeader == null) {
             theNodeStatus.currentTerm = theNodeStatus.currentTerm + 1;
             theNodeStatus.currentRole = CANDIDATE;
             theNodeStatus.votedFor = theNodeStatus.nodeId;
-            ArrayList<Integer> votes = new ArrayList<>();
+            CopyOnWriteArrayList<Integer> votes = new CopyOnWriteArrayList<Integer>();
             votes.add(theNodeStatus.nodeId);
             theNodeStatus.votesReceived = votes;
 
@@ -56,16 +115,24 @@ public class ElectionService {
                     .setCandidateId(theNodeStatus.nodeId)
                     .setTerm(theNodeStatus.currentTerm)
                     .setLastLogTerm(lastTerm)
-                    .setLastLogIndex(theNodeStatus.log.size() == 0 ? 0 : theNodeStatus.log.size() - 1) // ???
+                    .setLastLogIndex(theNodeStatus.log.size())
                     .build();
 
             sendVoteRequestToCluster(voteRequest);
         }
     }
 
-    private boolean leaderIsSuspected() {
+    private void checkLeaderIsSuspected() {
         Instant lastLeaderAppendTime = theNodeStatus.lastLeaderAppendTime;
-        return lastLeaderAppendTime != null && lastLeaderAppendTime.compareTo(lastLeaderAppendTime) > 10000;
+        boolean isLeaderSuspected = FOLLOWER.equals(theNodeStatus.currentRole) &&
+                lastLeaderAppendTime != null &&
+                Duration.between(lastLeaderAppendTime, Instant.now()).getSeconds() > LEADER_SUSPECTED_TIMEOUT_IN_SECONDS;
+        if (isLeaderSuspected) {
+            LOGGER.info("Leader {} is suspected, reset leader to null on node {}",
+                    theNodeStatus.currentLeader, theNodeStatus.nodeId);
+            theNodeStatus.currentLeader = null;
+            theNodeStatus.votedFor = null;
+        }
     }
 
     private void sendVoteRequestToCluster(RequestVoteRequest voteRequest) {
@@ -87,29 +154,24 @@ public class ElectionService {
 
             LOGGER.info("Wait for " + (nodesCount) + " followers");
             countDownLatch.await();
-            LOGGER.info("Received response from " + (nodesCount) + " followers");
+            LOGGER.info("Received election response from " + (nodesCount) + " followers");
         } catch (InterruptedException e) {
             LOGGER.error(e.getLocalizedMessage(), e);
         }
     }
 
     private Optional<RequestVoteResponse> sendRequest(RequestVoteRequest voteRequest, Integer followerId) {
-        int i = 1;
-        // make 2 attempts ???
-        while (i <= 1) {
-            try {
-                LOGGER.info("Vote attempt #{} to: {}, LOG: {}", i, followerId, voteRequest);
-                RequestVoteResponse voteResponse =
-                        nodeRegistry.getNodeGrpcClient(followerId).requestVote(voteRequest);
-                LOGGER.info("Follower {} has granted vote {} with term {}",
-                        followerId,
-                        voteResponse.getVoteGranted(),
-                        voteResponse.getTerm());
-                return Optional.of(voteResponse);
-            } catch (Throwable e) {
-                LOGGER.error(e.getLocalizedMessage(), e);
-            }
-            i++;
+        try {
+            LOGGER.info("Vote attempt of node {} to: {}, LOG: {}", theNodeStatus.nodeId, followerId, voteRequest);
+            RequestVoteResponse voteResponse =
+                    nodeRegistry.getNodeGrpcClient(followerId).requestVote(voteRequest);
+            LOGGER.info("Follower {} has granted vote {} with term {}",
+                    followerId,
+                    voteResponse.getVoteGranted(),
+                    voteResponse.getTerm());
+            return Optional.of(voteResponse);
+        } catch (Throwable e) {
+            LOGGER.error(e.getLocalizedMessage());
         }
         return Optional.empty();
     }
@@ -132,7 +194,7 @@ public class ElectionService {
                     theNodeStatus.sentLength.put(nodeId, theNodeStatus.log.size());
                     theNodeStatus.ackedLength.put(nodeId, 0);
                     // replicate log
-                    replicationService.replicateLog();
+                    replicationService.replicateLogToFollowers();
                     // ReplicateLog(nodeId, follower)
                 });
             }
